@@ -1,0 +1,30 @@
+diff -ur orig-matplotlib-3.10.7/pyproject.toml matplotlib-3.10.7/pyproject.toml
+--- orig-matplotlib-3.10.7/pyproject.toml	2025-10-09 00:46:31
++++ matplotlib-3.10.7/pyproject.toml	2025-10-10 02:57:42
+@@ -47,7 +47,7 @@
+ [project.optional-dependencies]
+ # Should be a copy of the build dependencies below.
+ dev = [
+-    "meson-python>=0.13.1,<0.17.0",
++    "meson-python @ git+https://github.com/mesonbuild/meson-python",
+     "pybind11>=2.13.2,!=2.13.3",
+     "setuptools_scm>=7",
+     # Not required by us but setuptools_scm without a version, cso _if_
+@@ -71,7 +71,7 @@
+ build-backend = "mesonpy"
+ # Also keep in sync with optional dependencies above.
+ requires = [
+-    "meson-python>=0.13.1,<0.17.0",
++    "meson-python @ git+https://github.com/mesonbuild/meson-python",
+     "pybind11>=2.13.2,!=2.13.3",
+     "setuptools_scm>=7",
+ ]
+@@ -321,3 +321,7 @@
+ addopts = [
+     "--import-mode=importlib",
+ ]
++
++# added this
++[tool.cibuildwheel.ios]
++xbuild-tools = ["cmake", "ninja"]
+\ No newline at end of file
