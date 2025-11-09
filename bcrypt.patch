@@ -1,0 +1,14 @@
+diff -ur bcrypt-5.0.0-orig/pyproject.toml bcrypt-5.0.0/pyproject.toml
+--- bcrypt-5.0.0-orig/pyproject.toml	2025-09-25 21:42:04
++++ bcrypt-5.0.0/pyproject.toml	2025-11-09 17:20:48
+@@ -8,6 +8,10 @@
+ # disable Pip's fallback guessing
+ build-backend = "setuptools.build_meta"
+ 
++[tool.cibuildwheel.ios]
++# Allow access to the cmake and rustc binaries in the isolated cross-build environment.
++xbuild-tools = ["cmake", "rustc", "cargo"]
++
+ [project]
+ name = "bcrypt"
+ # When updating this, also update lib.rs
