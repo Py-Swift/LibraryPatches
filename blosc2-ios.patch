@@ -1,0 +1,86 @@
+From 662b050b5c4b1487a7853b1114529581017b2914 Mon Sep 17 00:00:00 2001
+From: Py-Swift <psychowaspx@gmail.com>
+Date: Wed, 11 Mar 2026 19:23:46 +0100
+Subject: [PATCH] Add iOS cross-compilation support
+
+- Detect iOS via IPHONEOS_DEPLOYMENT_TARGET and force CMAKE_SYSTEM_NAME/PROCESSOR
+- Auto-discover Python/NumPy paths from cross-venv at configure time
+- Create Python::Interpreter imported target for add_custom_command compatibility
+- Disable TCC JIT on iOS (minicc-c2str host tool gets cross-compiled otherwise)
+---
+ CMakeLists.txt | 48 +++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4d92156..58ecbc7 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,3 +1,13 @@
++# ---- iOS cross-compilation support ----
++# When targeting iOS (cibuildwheel / Xcode set IPHONEOS_DEPLOYMENT_TARGET),
++# force CMAKE_SYSTEM_NAME and CMAKE_SYSTEM_PROCESSOR so that downstream
++# FetchContent deps (c-blosc2) pick the correct SIMD paths instead of
++# falling back to x86 SSE.
++if(DEFINED ENV{IPHONEOS_DEPLOYMENT_TARGET})
++  set(CMAKE_SYSTEM_NAME iOS CACHE STRING "" FORCE)
++  set(CMAKE_SYSTEM_PROCESSOR arm64 CACHE STRING "" FORCE)
++endif()
++
+ cmake_minimum_required(VERSION 3.15.0)
+ 
+ if(WIN32)
+@@ -22,7 +32,37 @@ endif()
+ # does not include a python symbolic link to python3.
+ # find_package(Python 3.12 COMPONENTS Interpreter NumPy Development.Module REQUIRED)
+ # IMO, this would need to be solved in Fedora, so we can just use the following line:
+-find_package(Python COMPONENTS Interpreter NumPy Development.Module REQUIRED)
++if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
++  # iOS cross-compilation: the Interpreter component requires a runnable target
++  # Python, which doesn't exist on the build host.  Discover paths from the
++  # cross-venv's Python (which IS a host binary, just reporting iOS sysconfig).
++  find_program(_ios_python NAMES python3 python REQUIRED)
++  set(Python_EXECUTABLE "${_ios_python}" CACHE FILEPATH "" FORCE)
++
++  execute_process(
++    COMMAND "${_ios_python}" -c "import sysconfig; print(sysconfig.get_path('include'))"
++    OUTPUT_VARIABLE _ios_python_inc OUTPUT_STRIP_TRAILING_WHITESPACE)
++  set(Python_INCLUDE_DIR "${_ios_python_inc}" CACHE PATH "" FORCE)
++
++  execute_process(
++    COMMAND "${_ios_python}" -c
++      "import os,site;sp=site.getsitepackages()[0]\nfor d in('numpy/_core/include','numpy/core/include'):\n p=os.path.join(sp,d)\n if os.path.isdir(p):print(p);break"
++    OUTPUT_VARIABLE _ios_numpy_inc OUTPUT_STRIP_TRAILING_WHITESPACE)
++  set(Python_NumPy_INCLUDE_DIR "${_ios_numpy_inc}" CACHE PATH "" FORCE)
++
++  message(STATUS "iOS: Python_EXECUTABLE    = ${Python_EXECUTABLE}")
++  message(STATUS "iOS: Python_INCLUDE_DIR   = ${Python_INCLUDE_DIR}")
++  message(STATUS "iOS: Python_NumPy_INCLUDE = ${Python_NumPy_INCLUDE_DIR}")
++
++  find_package(Python COMPONENTS Development.Module NumPy REQUIRED)
++  if(NOT TARGET Python::Interpreter)
++    add_executable(Python::Interpreter IMPORTED)
++    set_target_properties(Python::Interpreter PROPERTIES
++      IMPORTED_LOCATION "${Python_EXECUTABLE}")
++  endif()
++else()
++  find_package(Python COMPONENTS Interpreter NumPy Development.Module REQUIRED)
++endif()
+ 
+ # Add custom command to generate the version file
+ add_custom_command(
+@@ -61,6 +101,12 @@ if(EMSCRIPTEN)
+   set(MINIEXPR_WASM32_SIDE_MODULE ON CACHE BOOL "Use host-registered wasm32 JIT helpers" FORCE)
+ endif()
+ 
++# iOS: disable TCC JIT — tinycc builds a host tool (minicc-c2str) with the
++# cross-compiler, producing an iOS Mach-O that can't execute on macOS.
++if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
++  set(MINIEXPR_ENABLE_TCC_JIT OFF CACHE BOOL "Disable TCC JIT for iOS" FORCE)
++endif()
++
+ FetchContent_Declare(miniexpr
+     GIT_REPOSITORY https://github.com/Blosc/miniexpr.git
+     GIT_TAG 37bf6982bf9619036b47f095b7005bc3c87a7447
+-- 
+2.50.1 (Apple Git-155)
+
