@@ -1,0 +1,418 @@
+diff --git a/patches/ios_mactypes_shim.h b/patches/ios_mactypes_shim.h
+new file mode 100644
+index 0000000..00afb3b
+--- /dev/null
++++ b/patches/ios_mactypes_shim.h
+@@ -0,0 +1,280 @@
++/*
++ * ios_mactypes_shim.h
++ *
++ * Force-included before all sources in the opencv_python3 target on iOS.
++ * Defines __MACTYPES__ to prevent the real MacTypes.h from being included,
++ * then reproduces every typedef from MacTypes.h EXCEPT the four that collide
++ * with cv:: names brought in by "using namespace cv;":
++ *
++ *   Ptr   (char *)          – collides with cv::Ptr<T>
++ *   Size  (long)            – collides with cv::Size
++ *   Point (struct Point)    – collides with cv::Point
++ *   Rect  (struct Rect)     – collides with cv::Rect
++ *
++ * Handle (Ptr *) is redefined as char** to avoid depending on Ptr.
++ * PointPtr and RectPtr are omitted as they depend on Point/Rect.
++ */
++#ifndef __MACTYPES__
++#define __MACTYPES__
++
++#if __has_include(<ConditionalMacros.h>)
++#include <ConditionalMacros.h>
++#endif
++
++#include <TargetConditionals.h>
++#include <stdbool.h>
++#include <sys/types.h>
++#include <Availability.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#pragma pack(push, 2)
++
++/* ---- Carbon deprecation flags ---- */
++#if !defined(ALLOW_OBSOLETE_CARBON) || !ALLOW_OBSOLETE_CARBON
++#define ALLOW_OBSOLETE_CARBON_MACMEMORY 0
++#define ALLOW_OBSOLETE_CARBON_OSUTILS   0
++#else
++#define ALLOW_OBSOLETE_CARBON_MACMEMORY 1
++#define ALLOW_OBSOLETE_CARBON_OSUTILS   1
++#endif
++
++#ifndef NULL
++#define NULL __DARWIN_NULL
++#endif
++#ifndef nil
++  #if defined(__has_feature)
++    #if __has_feature(cxx_nullptr)
++      #define nil nullptr
++    #else
++      #define nil __DARWIN_NULL
++    #endif
++  #else
++    #define nil __DARWIN_NULL
++  #endif
++#endif
++
++/* ---- Base integer types ---- */
++typedef unsigned char                   UInt8;
++typedef signed char                     SInt8;
++typedef unsigned short                  UInt16;
++typedef signed short                    SInt16;
++
++#if __LP64__
++typedef unsigned int                    UInt32;
++typedef signed int                      SInt32;
++#else
++typedef unsigned long                   UInt32;
++typedef signed long                     SInt32;
++#endif
++
++#ifndef _OS_OSTYPES_H
++#if TARGET_RT_BIG_ENDIAN
++struct wide { SInt32 hi; UInt32 lo; };
++typedef struct wide                     wide;
++struct UnsignedWide { UInt32 hi; UInt32 lo; };
++typedef struct UnsignedWide             UnsignedWide;
++#else
++struct wide { UInt32 lo; SInt32 hi; };
++typedef struct wide                     wide;
++struct UnsignedWide { UInt32 lo; UInt32 hi; };
++typedef struct UnsignedWide             UnsignedWide;
++#endif
++#endif
++
++#if TYPE_LONGLONG || 0
++    #if defined(_MSC_VER) && !defined(__MWERKS__) && defined(_M_IX86)
++      typedef signed __int64            SInt64;
++      typedef unsigned __int64          UInt64;
++    #else
++      typedef signed long long          SInt64;
++      typedef unsigned long long        UInt64;
++    #endif
++#else
++typedef wide                            SInt64;
++typedef UnsignedWide                    UInt64;
++#endif
++
++/* ---- Fixed point types ---- */
++typedef SInt32                          Fixed;
++typedef Fixed *                         FixedPtr;
++typedef SInt32                          Fract;
++typedef Fract *                         FractPtr;
++typedef UInt32                          UnsignedFixed;
++typedef UnsignedFixed *                 UnsignedFixedPtr;
++typedef short                           ShortFixed;
++typedef ShortFixed *                    ShortFixedPtr;
++
++/* ---- Floating point types ---- */
++typedef float                           Float32;
++typedef double                          Float64;
++struct Float80 { SInt16 exp; UInt16 man[4]; };
++typedef struct Float80                  Float80;
++struct Float96 { SInt16 exp[2]; UInt16 man[4]; };
++typedef struct Float96                  Float96;
++struct Float32Point { Float32 x; Float32 y; };
++typedef struct Float32Point             Float32Point;
++
++/* ---- Memory Manager types ---- */
++/* OMITTED: Ptr (char *)  – conflicts with cv::Ptr  */
++/* OMITTED: Size (long)   – conflicts with cv::Size */
++typedef char **                         Handle;  /* originally Ptr*, redefined directly */
++
++/* ---- Higher level basic types ---- */
++typedef SInt16                          OSErr;
++typedef SInt32                          OSStatus;
++typedef void *                          LogicalAddress;
++typedef const void *                    ConstLogicalAddress;
++typedef void *                          PhysicalAddress;
++typedef UInt8 *                         BytePtr;
++typedef unsigned long                   ByteCount;
++typedef unsigned long                   ByteOffset;
++typedef SInt32                          Duration;
++typedef UnsignedWide                    AbsoluteTime;
++typedef UInt32                          OptionBits;
++typedef unsigned long                   ItemCount;
++typedef UInt32                          PBVersion;
++typedef SInt16                          ScriptCode;
++typedef SInt16                          LangCode;
++typedef SInt16                          RegionCode;
++typedef UInt32                          FourCharCode;
++typedef FourCharCode                    OSType;
++typedef FourCharCode                    ResType;
++typedef OSType *                        OSTypePtr;
++typedef ResType *                       ResTypePtr;
++
++/* ---- Boolean ---- */
++typedef unsigned char                   Boolean;
++
++/* ---- Function pointers ---- */
++#if !0
++typedef long (*ProcPtr)(void);
++typedef ProcPtr                         UniversalProcPtr;
++typedef ProcPtr *                       ProcHandle;
++typedef UniversalProcPtr *              UniversalProcHandle;
++#endif
++
++/* ---- RefCon types ---- */
++typedef void *                          PRefCon;
++#if __LP64__
++typedef void *                          URefCon;
++typedef void *                          SRefCon;
++#else
++typedef UInt32                          URefCon;
++typedef SInt32                          SRefCon;
++#endif
++
++/* ---- Common constants ---- */
++enum { noErr = 0 };
++enum { kNilOptions = 0 };
++#define kInvalidID 0
++enum {
++  kVariableLengthArray
++#ifdef __has_extension
++  #if __has_extension(enumerator_attributes)
++    __attribute__((deprecated))
++  #endif
++#endif
++  = 1
++};
++enum { kUnknownType = 0x3F3F3F3F };
++
++/* ---- Unicode / String types ---- */
++typedef UInt32                          UnicodeScalarValue;
++typedef UInt32                          UTF32Char;
++typedef UInt16                          UniChar;
++typedef UInt16                          UTF16Char;
++typedef UInt8                           UTF8Char;
++typedef UniChar *                       UniCharPtr;
++typedef unsigned long                   UniCharCount;
++typedef UniCharCount *                  UniCharCountPtr;
++typedef unsigned char                   Str255[256];
++typedef unsigned char                   Str63[64];
++typedef unsigned char                   Str32[33];
++typedef unsigned char                   Str31[32];
++typedef unsigned char                   Str27[28];
++typedef unsigned char                   Str15[16];
++typedef unsigned char                   Str32Field[34];
++typedef Str63                           StrFileName;
++typedef unsigned char *                 StringPtr;
++typedef StringPtr *                     StringHandle;
++typedef const unsigned char *           ConstStringPtr;
++typedef const unsigned char *           ConstStr255Param;
++typedef const unsigned char *           ConstStr63Param;
++typedef const unsigned char *           ConstStr32Param;
++typedef const unsigned char *           ConstStr31Param;
++typedef const unsigned char *           ConstStr27Param;
++typedef const unsigned char *           ConstStr15Param;
++typedef ConstStr63Param                 ConstStrFileNameParam;
++#ifdef __cplusplus
++inline unsigned char StrLength(ConstStr255Param string) { return (*string); }
++#else
++#define StrLength(string) (*(const unsigned char *)(string))
++#endif
++
++/* ---- ProcessSerialNumber ---- */
++struct ProcessSerialNumber { UInt32 highLongOfPSN; UInt32 lowLongOfPSN; };
++typedef struct ProcessSerialNumber      ProcessSerialNumber;
++typedef ProcessSerialNumber *           ProcessSerialNumberPtr;
++
++/* ---- Quickdraw types ---- */
++/* OMITTED: struct Point, Point, PointPtr – conflicts with cv::Point */
++/* OMITTED: struct Rect, Rect, RectPtr   – conflicts with cv::Rect  */
++struct FixedPoint { Fixed x; Fixed y; };
++typedef struct FixedPoint               FixedPoint;
++struct FixedRect { Fixed left; Fixed top; Fixed right; Fixed bottom; };
++typedef struct FixedRect                FixedRect;
++
++typedef short                           CharParameter;
++enum {
++  normal    = 0, bold    = 1, italic    = 2, underline = 4,
++  outline   = 8, shadow  = 0x10, condense = 0x20, extend = 0x40
++};
++typedef unsigned char                   Style;
++typedef short                           StyleParameter;
++typedef Style                           StyleField;
++
++/* ---- TimeBase types ---- */
++typedef SInt32                          TimeValue;
++typedef SInt32                          TimeScale;
++typedef wide                            CompTimeValue;
++typedef SInt64                          TimeValue64;
++typedef struct TimeBaseRecord *         TimeBase;
++struct TimeRecord { CompTimeValue value; TimeScale scale; TimeBase base; };
++typedef struct TimeRecord               TimeRecord;
++
++/* ---- Versioning ---- */
++#if TARGET_RT_BIG_ENDIAN
++struct NumVersion { UInt8 majorRev; UInt8 minorAndBugRev; UInt8 stage; UInt8 nonRelRev; };
++#else
++struct NumVersion { UInt8 nonRelRev; UInt8 stage; UInt8 minorAndBugRev; UInt8 majorRev; };
++#endif
++typedef struct NumVersion               NumVersion;
++enum { developStage = 0x20, alphaStage = 0x40, betaStage = 0x60, finalStage = 0x80 };
++union NumVersionVariant { NumVersion parts; UInt32 whole; };
++typedef union NumVersionVariant         NumVersionVariant;
++typedef NumVersionVariant *             NumVersionVariantPtr;
++typedef NumVersionVariantPtr *          NumVersionVariantHandle;
++struct VersRec { NumVersion numericVersion; short countryCode; Str255 shortVersion; Str255 reserved; };
++typedef struct VersRec                  VersRec;
++typedef VersRec *                       VersRecPtr;
++typedef VersRecPtr *                    VersRecHndl;
++
++/* ---- Old name aliases ---- */
++typedef UInt8                           Byte;
++typedef SInt8                           SignedByte;
++typedef wide *                          WidePtr;
++typedef UnsignedWide *                  UnsignedWidePtr;
++typedef Float80                         extended80;
++typedef Float96                         extended96;
++typedef SInt8                           VHSelect;
++
++#pragma pack(pop)
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* __MACTYPES__ */
+diff --git a/pyproject.toml b/pyproject.toml
+index 71de7f9..6e71e71 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,3 +11,12 @@ requires = [
+   "scikit-build>=0.14.0",
+   "setuptools==59.2.0",
+ ]
++
++
++[tool.cibuildwheel.ios]
++xbuild-tools = ["cmake", "ninja"]
++
++[tool.cibuildwheel.ios.environment]
++PIP_EXTRA_INDEX_URL = "https://pypi.anaconda.org/pyswift/simple"
++CI_BUILD = "1"
++OPENCV_PYTHON_SKIP_GIT_COMMANDS = "1"
+diff --git a/setup.py b/setup.py
+index 48d5a65..853fe13 100644
+--- a/setup.py
++++ b/setup.py
+@@ -81,6 +81,11 @@ def main():
+     # https://stackoverflow.com/questions/1405913/python-32bit-or-64bit-mode
+     is64 = sys.maxsize > 2 ** 32
+ 
++    # Detect iOS cross-compilation (cibuildwheel sets up a cross-venv
++    # where sysconfig reports the iOS target platform)
++    target_platform = sysconfig.get_platform()
++    is_ios = "ios" in target_platform
++
+     package_name = "opencv-python"
+ 
+     if build_contrib and not build_headless:
+@@ -216,6 +221,98 @@ def main():
+         )
+     )
+ 
++    # iOS cross-compilation: set CMake toolchain flags and disable
++    # desktop/platform-specific features that are unavailable on iOS
++    if is_ios:
++        # sysconfig.get_platform() format: "ios-<ver>-<arch>-<sdk>"
++        # e.g. "ios-13.0-arm64-iphoneos" or "ios-16.0-arm64-iphonesimulator"
++        ios_parts = target_platform.split("-")
++        ios_ver = ios_parts[1] if len(ios_parts) >= 2 else "13.0"
++        ios_arch = ios_parts[2] if len(ios_parts) >= 3 else "arm64"
++        ios_sdk = "iphonesimulator" if "simulator" in target_platform else "iphoneos"
++        cmake_args += [
++            "-DCMAKE_SYSTEM_NAME=iOS",
++            "-DCMAKE_OSX_ARCHITECTURES=%s" % ios_arch,
++            "-DCMAKE_OSX_SYSROOT=%s" % ios_sdk,
++            "-DCMAKE_OSX_DEPLOYMENT_TARGET=%s" % ios_ver,
++            "-DBUILD_opencv_highgui=OFF",
++            "-DWITH_FFMPEG=OFF",
++            "-DWITH_AVFOUNDATION=OFF",
++            "-DWITH_CAP_IOS=OFF",
++            "-DWITH_V4L=OFF",
++            "-DWITH_GSTREAMER=OFF",
++            "-DWITH_1394=OFF",
++            "-DWITH_OPENEXR=OFF",
++            "-DBUILD_OPENEXR=OFF",
++            "-DBUILD_opencv_videoio=OFF",
++            "-DBUILD_opencv_video=OFF",
++            "-DBUILD_opencv_stitching=OFF",
++            "-DBUILD_opencv_dnn=OFF",
++            "-DBUILD_PROTOBUF=OFF",
++            "-DWITH_PROTOBUF=OFF",
++            "-DBUILD_TESTS=OFF",
++            "-DBUILD_PERF_TESTS=OFF",
++            "-DBUILD_opencv_apps=OFF",
++            "-DBUILD_EXAMPLES=OFF",
++            "-DBUILD_opencv_java=OFF",
++        ]
++        ios_shim = os.path.abspath("patches/ios_mactypes_shim.h")
++        dlpack_inc = os.path.abspath("opencv/3rdparty/dlpack/include")
++        cmake_args += [
++            '-DCMAKE_C_FLAGS=-include "%s"' % ios_shim,
++            '-DCMAKE_CXX_FLAGS=-include "%s" -I"%s"' % (ios_shim, dlpack_inc),
++        ]
++        ios_python_lib = ""
++        py_libdir = sysconfig.get_config_var("LIBDIR") or ""
++        py_ldlib = sysconfig.get_config_var("LDLIBRARY") or ""
++        if py_libdir and py_ldlib:
++            ios_python_lib = os.path.join(py_libdir, py_ldlib)
++        if not ios_python_lib or not os.path.exists(ios_python_lib):
++            framework_base = os.path.dirname(os.path.dirname(python_include_dir))
++            candidate = os.path.join(framework_base, "Python.framework", "Python")
++            if os.path.exists(candidate):
++                ios_python_lib = candidate
++        if ios_python_lib:
++            cmake_args = [a for a in cmake_args if not a.startswith("-DPYTHON3_LIBRARY=")]
++            cmake_args.append("-DPYTHON3_LIBRARY=%s" % ios_python_lib.replace("\", "/"))
++        cmake_args.append("-DPYTHON3_INCLUDE_PATH=%s" % python_include_dir)
++        cmake_args += [
++            "-DPYTHON3_VERSION_STRING=%d.%d" % (sys.version_info.major, sys.version_info.minor),
++            "-DPYTHON3_VERSION_MAJOR=%d" % sys.version_info.major,
++            "-DPYTHON3_VERSION_MINOR=%d" % sys.version_info.minor,
++            "-DPYTHON3INTERP_FOUND=ON",
++            "-DPYTHON_DEFAULT_AVAILABLE=TRUE",
++            "-DPYTHON_DEFAULT_VERSION=%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, sys.version_info.micro),
++        ]
++        numpy_inc = ""
++        try:
++            import numpy
++            numpy_inc = numpy.get_include()
++        except ImportError:
++            pass
++        if not numpy_inc:
++            try:
++                numpy_inc = subprocess.check_output(
++                    [sys.executable, "-c", "import numpy; print(numpy.get_include())"],
++                    stderr=subprocess.DEVNULL
++                ).decode().strip()
++            except Exception:
++                pass
++        if not numpy_inc:
++            site_pkgs = os.path.join(os.path.dirname(os.path.dirname(sys.executable)),
++                                     "lib", "python%s" % python_version, "site-packages")
++            candidate = os.path.join(site_pkgs, "numpy", "core", "include")
++            if os.path.isdir(candidate):
++                numpy_inc = candidate
++            else:
++                candidate = os.path.join(site_pkgs, "numpy", "_core", "include")
++                if os.path.isdir(candidate):
++                    numpy_inc = candidate
++        if numpy_inc:
++            cmake_args.append("-DPYTHON3_NUMPY_INCLUDE_DIRS=%s" % numpy_inc.replace("\", "/"))
++        else:
++            print("WARNING: Could not find numpy include directory for iOS build")
++
+     if build_headless:
+         # it seems that cocoa cannot be disabled so on macOS the package is not truly headless
+         cmake_args.append("-DWITH_WIN32UI=OFF")

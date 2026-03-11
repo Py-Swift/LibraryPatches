@@ -1,0 +1,165 @@
+From db05cd029a41bb8c279d83f2e6f1420870b02a21 Mon Sep 17 00:00:00 2001
+From: Py-Swift <psychowaspx@gmail.com>
+Date: Wed, 11 Mar 2026 14:35:46 +0100
+Subject: [PATCH] Add iOS cross-compilation support via cibuildwheel
+
+- Add [tool.cibuildwheel.ios] config in pyproject.toml:
+  - Pre-built numpy wheel from pypi.anaconda.org/pyswift
+  - Override LDFLAGS (Apple ld incompatible with GNU --strip-all)
+  - Disable test-command (iOS binaries can't run on macOS host)
+  - Pass supplementary meson cross-file and native-file
+
+- Add meson cross-file (ios-meson-cross.ini):
+  - exe_wrapper = /usr/bin/true to skip running iOS sanity binaries
+  - needs_exe_wrapper = true
+
+- Add meson native-file (ios-meson-native.ini) + wrapper scripts:
+  - Unset SDKROOT/IPHONEOS_DEPLOYMENT_TARGET so build-machine
+    compiler targets macOS, not iOS
+
+- Fix numpy include path discovery in pandas/meson.build:
+  - Fallback to importlib.util.find_spec when import numpy fails
+    (iOS numpy native modules can't load on x86_64 build host)
+---
+ ios-meson-cross.ini  | 10 ++++++++++
+ ios-meson-native.ini | 11 +++++++++++
+ ios-native-cc.sh     |  7 +++++++
+ ios-native-cxx.sh    |  7 +++++++
+ pandas/meson.build   | 20 ++++++++++++++------
+ pyproject.toml       | 26 ++++++++++++++++++++++++++
+ 6 files changed, 75 insertions(+), 6 deletions(-)
+ create mode 100644 ios-meson-cross.ini
+ create mode 100644 ios-meson-native.ini
+ create mode 100755 ios-native-cc.sh
+ create mode 100755 ios-native-cxx.sh
+
+diff --git a/ios-meson-cross.ini b/ios-meson-cross.ini
+new file mode 100644
+index 0000000000..10285a7a7f
+--- /dev/null
++++ b/ios-meson-cross.ini
+@@ -0,0 +1,10 @@
++; Supplementary meson cross-file for iOS builds.
++; Tells meson that cross-compiled binaries cannot run on the build host,
++; preventing it from trying to execute sanity-check programs that would
++; hang on macOS (since iOS arm64 Mach-O binaries can't run on the host).
++
++[properties]
++needs_exe_wrapper = true
++
++[binaries]
++exe_wrapper = ['/usr/bin/true']
+diff --git a/ios-meson-native.ini b/ios-meson-native.ini
+new file mode 100644
+index 0000000000..d796c9fc62
+--- /dev/null
++++ b/ios-meson-native.ini
+@@ -0,0 +1,11 @@
++; Native (build-machine) meson file for iOS cross-builds.
++; Uses wrapper scripts that unset SDKROOT and IPHONEOS_DEPLOYMENT_TARGET
++; so the build-machine compiler targets macOS, not iOS.
++
++[binaries]
++c = '/tmp/ios-native-cc.sh'
++cpp = '/tmp/ios-native-cxx.sh'
++objc = '/tmp/ios-native-cc.sh'
++objcpp = '/tmp/ios-native-cxx.sh'
++ar = '/usr/bin/ar'
++strip = '/usr/bin/strip'
+diff --git a/ios-native-cc.sh b/ios-native-cc.sh
+new file mode 100755
+index 0000000000..8b1bef6720
+--- /dev/null
++++ b/ios-native-cc.sh
+@@ -0,0 +1,7 @@
++#!/bin/bash
++# Wrapper for native (build-machine) C compiler during iOS cross-compilation.
++# Unsets iOS-related env vars that contaminate the cross-venv, forcing
++# the compiler to target macOS instead of iOS.
++unset SDKROOT
++unset IPHONEOS_DEPLOYMENT_TARGET
++exec /usr/bin/cc "$@"
+diff --git a/ios-native-cxx.sh b/ios-native-cxx.sh
+new file mode 100755
+index 0000000000..ef25f4d997
+--- /dev/null
++++ b/ios-native-cxx.sh
+@@ -0,0 +1,7 @@
++#!/bin/bash
++# Wrapper for native (build-machine) C++ compiler during iOS cross-compilation.
++# Unsets iOS-related env vars that contaminate the cross-venv, forcing
++# the compiler to target macOS instead of iOS.
++unset SDKROOT
++unset IPHONEOS_DEPLOYMENT_TARGET
++exec /usr/bin/c++ "$@"
+diff --git a/pandas/meson.build b/pandas/meson.build
+index eb23344ffb..0b72510704 100644
+--- a/pandas/meson.build
++++ b/pandas/meson.build
+@@ -4,14 +4,22 @@ incdir_numpy = run_command(
+         '-c',
+         '''
+ import os
+-import numpy as np
+ try:
+-    # Check if include directory is inside the pandas dir
+-    # e.g. a venv created inside the pandas dir
+-    # If so, convert it to a relative path
+-    incdir = os.path.relpath(np.get_include())
+-except Exception:
++    import numpy as np
+     incdir = np.get_include()
++except Exception:
++    # Fallback for cross-compilation: numpy native modules may not load
++    # on the build machine, but we only need the header directory.
++    import importlib.util
++    spec = importlib.util.find_spec("numpy")
++    numpy_dir = os.path.dirname(spec.origin)
++    incdir = os.path.join(numpy_dir, "_core", "include")
++    if not os.path.isdir(incdir):
++        incdir = os.path.join(numpy_dir, "core", "include")
++try:
++    incdir = os.path.relpath(incdir)
++except Exception:
++    pass
+ print(incdir)
+      ''',
+     ],
+diff --git a/pyproject.toml b/pyproject.toml
+index 61b4483db3..2cf48d6050 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -725,3 +725,29 @@ directory = "coverage_html_report"
+ [tool.codespell]
+ ignore-words-list = "blocs, coo, hist, nd, sav, ser, recuse, nin, timere, expec, expecs, indext, SME, NotIn, tructures, tru, indx, abd, ABD"
+ ignore-regex = 'https://([\w/\.])+'
++
++
++[tool.cibuildwheel.ios]
++xbuild-tools = [
++  "cmake", 
++  "ninja"
++]
++# Cannot run iOS binaries on macOS build host
++test-command = ""
++# Install supplementary meson cross/native files to standard data dirs so meson
++# can find them by name, then run the normal before-build script.
++before-build = "mkdir -p ~/.local/share/meson/cross ~/.local/share/meson/native && cp {package}/ios-meson-cross.ini ~/.local/share/meson/cross/ && cp {package}/ios-meson-native.ini ~/.local/share/meson/native/ && cp {package}/ios-native-cc.sh {package}/ios-native-cxx.sh /tmp/ && chmod +x /tmp/ios-native-cc.sh /tmp/ios-native-cxx.sh && PACKAGE_DIR={package} bash {package}/scripts/cibw_before_build.sh"
++# Supplementary cross-file: exe_wrapper prevents meson from hanging on iOS binaries.
++# Supplementary native-file: ensures build-machine uses macOS system compiler,
++# not the iOS cross-compiler from the cross-venv.
++config-settings = {setup-args = ["--cross-file=ios-meson-cross.ini", "--native-file=ios-meson-native.ini"]}
++
++[tool.cibuildwheel.ios.environment]
++PIP_EXTRA_INDEX_URL = "https://pypi.anaconda.org/pyswift/simple"
++# Prefer pre-built binary wheels (esp. numpy) over source distributions,
++# since cross-compiling native deps from source for iOS is not straightforward
++PIP_PREFER_BINARY = "1"
++# Override the base LDFLAGS: -Wl,--strip-all is GNU ld-specific and not
++# supported by Apple's linker.  -g0 strips debug info at compile time.
++CFLAGS = "-g0"
++LDFLAGS = ""
+\ No newline at end of file
+-- 
+2.50.1 (Apple Git-155)
+

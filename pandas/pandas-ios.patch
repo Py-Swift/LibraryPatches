@@ -1,0 +1,174 @@
+diff --git a/ios-meson-cross.ini b/ios-meson-cross.ini
+new file mode 100644
+index 0000000000..10285a7a7f
+--- /dev/null
++++ b/ios-meson-cross.ini
+@@ -0,0 +1,10 @@
++; Supplementary meson cross-file for iOS builds.
++; Tells meson that cross-compiled binaries cannot run on the build host,
++; preventing it from trying to execute sanity-check programs that would
++; hang on macOS (since iOS arm64 Mach-O binaries can't run on the host).
++
++[properties]
++needs_exe_wrapper = true
++
++[binaries]
++exe_wrapper = ['/usr/bin/true']
+diff --git a/ios-meson-native.ini b/ios-meson-native.ini
+new file mode 100644
+index 0000000000..d796c9fc62
+--- /dev/null
++++ b/ios-meson-native.ini
+@@ -0,0 +1,11 @@
++; Native (build-machine) meson file for iOS cross-builds.
++; Uses wrapper scripts that unset SDKROOT and IPHONEOS_DEPLOYMENT_TARGET
++; so the build-machine compiler targets macOS, not iOS.
++
++[binaries]
++c = '/tmp/ios-native-cc.sh'
++cpp = '/tmp/ios-native-cxx.sh'
++objc = '/tmp/ios-native-cc.sh'
++objcpp = '/tmp/ios-native-cxx.sh'
++ar = '/usr/bin/ar'
++strip = '/usr/bin/strip'
+diff --git a/ios-native-cc.sh b/ios-native-cc.sh
+new file mode 100755
+index 0000000000..8b1bef6720
+--- /dev/null
++++ b/ios-native-cc.sh
+@@ -0,0 +1,7 @@
++#!/bin/bash
++# Wrapper for native (build-machine) C compiler during iOS cross-compilation.
++# Unsets iOS-related env vars that contaminate the cross-venv, forcing
++# the compiler to target macOS instead of iOS.
++unset SDKROOT
++unset IPHONEOS_DEPLOYMENT_TARGET
++exec /usr/bin/cc "$@"
+diff --git a/ios-native-cxx.sh b/ios-native-cxx.sh
+new file mode 100755
+index 0000000000..ef25f4d997
+--- /dev/null
++++ b/ios-native-cxx.sh
+@@ -0,0 +1,7 @@
++#!/bin/bash
++# Wrapper for native (build-machine) C++ compiler during iOS cross-compilation.
++# Unsets iOS-related env vars that contaminate the cross-venv, forcing
++# the compiler to target macOS instead of iOS.
++unset SDKROOT
++unset IPHONEOS_DEPLOYMENT_TARGET
++exec /usr/bin/c++ "$@"
+diff --git a/pandas/core/frame.py b/pandas/core/frame.py
+index 73adf8cfb3..86cdd9f805 100644
+--- a/pandas/core/frame.py
++++ b/pandas/core/frame.py
+@@ -13044,26 +13044,14 @@ class DataFrame(NDFrame, OpsMixin):
+             axis can create combinations of index and column values
+             that are missing from the original dataframe. See Examples
+             section.
+-
+-            .. deprecated:: 3.0
+-               This parameter is deprecated and will be removed in a future
+-               version of pandas.
+         sort : bool, default True
+             Whether to sort the levels of the resulting MultiIndex.
+-
+-            .. deprecated:: 3.0
+-               This parameter is deprecated and will be removed in a future
+-               version of pandas.
+         future_stack : bool, default True
+             Whether to use the new stack implementation. This is the default
+             as of pandas 3.0. When True, dropna and sort have no impact
+             on the result and must remain unspecified. See :ref:`pandas 2.1.0 Release
+             notes <whatsnew_210.enhancements.new_stack>` for more details.
+ 
+-            .. deprecated:: 3.0
+-               This parameter is deprecated and will be removed in a future
+-               version of pandas.
+-
+         Returns
+         -------
+         DataFrame or Series
+@@ -13080,10 +13068,11 @@ class DataFrame(NDFrame, OpsMixin):
+ 
+         Notes
+         -----
+-        The function is named by analogy with a collection of books being
+-        reorganized from being side-by-side horizontally (the columns of the
+-        DataFrame) to being stacked vertically on top of each other (in the
+-        index of the DataFrame).
++        The function is named by analogy with a collection of books
++        being reorganized from being side by side on a horizontal
++        position (the columns of the dataframe) to being stacked
++        vertically on top of each other (in the index of the
++        dataframe).
+ 
+         Reference :ref:`the user guide <reshaping.stacking>` for more examples.
+ 
+diff --git a/pandas/meson.build b/pandas/meson.build
+index eb23344ffb..0b72510704 100644
+--- a/pandas/meson.build
++++ b/pandas/meson.build
+@@ -4,14 +4,22 @@ incdir_numpy = run_command(
+         '-c',
+         '''
+ import os
+-import numpy as np
+ try:
+-    # Check if include directory is inside the pandas dir
+-    # e.g. a venv created inside the pandas dir
+-    # If so, convert it to a relative path
+-    incdir = os.path.relpath(np.get_include())
+-except Exception:
++    import numpy as np
+     incdir = np.get_include()
++except Exception:
++    # Fallback for cross-compilation: numpy native modules may not load
++    # on the build machine, but we only need the header directory.
++    import importlib.util
++    spec = importlib.util.find_spec("numpy")
++    numpy_dir = os.path.dirname(spec.origin)
++    incdir = os.path.join(numpy_dir, "_core", "include")
++    if not os.path.isdir(incdir):
++        incdir = os.path.join(numpy_dir, "core", "include")
++try:
++    incdir = os.path.relpath(incdir)
++except Exception:
++    pass
+ print(incdir)
+      ''',
+     ],
+diff --git a/pyproject.toml b/pyproject.toml
+index 61b4483db3..2cf48d6050 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -725,3 +725,29 @@ directory = "coverage_html_report"
+ [tool.codespell]
+ ignore-words-list = "blocs, coo, hist, nd, sav, ser, recuse, nin, timere, expec, expecs, indext, SME, NotIn, tructures, tru, indx, abd, ABD"
+ ignore-regex = 'https://([\w/\.])+'
++
++
++[tool.cibuildwheel.ios]
++xbuild-tools = [
++  "cmake", 
++  "ninja"
++]
++# Cannot run iOS binaries on macOS build host
++test-command = ""
++# Install supplementary meson cross/native files to standard data dirs so meson
++# can find them by name, then run the normal before-build script.
++before-build = "mkdir -p ~/.local/share/meson/cross ~/.local/share/meson/native && cp {package}/ios-meson-cross.ini ~/.local/share/meson/cross/ && cp {package}/ios-meson-native.ini ~/.local/share/meson/native/ && cp {package}/ios-native-cc.sh {package}/ios-native-cxx.sh /tmp/ && chmod +x /tmp/ios-native-cc.sh /tmp/ios-native-cxx.sh && PACKAGE_DIR={package} bash {package}/scripts/cibw_before_build.sh"
++# Supplementary cross-file: exe_wrapper prevents meson from hanging on iOS binaries.
++# Supplementary native-file: ensures build-machine uses macOS system compiler,
++# not the iOS cross-compiler from the cross-venv.
++config-settings = {setup-args = ["--cross-file=ios-meson-cross.ini", "--native-file=ios-meson-native.ini"]}
++
++[tool.cibuildwheel.ios.environment]
++PIP_EXTRA_INDEX_URL = "https://pypi.anaconda.org/pyswift/simple"
++# Prefer pre-built binary wheels (esp. numpy) over source distributions,
++# since cross-compiling native deps from source for iOS is not straightforward
++PIP_PREFER_BINARY = "1"
++# Override the base LDFLAGS: -Wl,--strip-all is GNU ld-specific and not
++# supported by Apple's linker.  -g0 strips debug info at compile time.
++CFLAGS = "-g0"
++LDFLAGS = ""
+\ No newline at end of file
