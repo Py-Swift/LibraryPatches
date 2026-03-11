@@ -1,25 +1,3 @@
-From 4613f78696e8e86d702390f099b219530f7ab8fa Mon Sep 17 00:00:00 2001
-From: Py-Swift <psychowaspx@gmail.com>
-Date: Wed, 11 Mar 2026 15:07:14 +0100
-Subject: [PATCH] Add iOS cross-compilation support via cibuildwheel
-
-- Add iOS detection and CMake toolchain flags in setup.py
-- Add MacTypes.h shim to resolve Ptr/Size/Point/Rect ambiguity with cv:: types
-- Explicitly set Python version vars skipped by OpenCVDetectPython on iOS
-- Add dlpack include path (skipped by OpenCVDetectDLPack on iOS)
-- Fix Python library path for iOS Python.framework
-- Multi-strategy numpy include detection for isolated build envs
-- Use Ninja generator with explicit CMAKE_MAKE_PROGRAM for iOS
-- Set LIMITED_API=OFF for iOS builds
-- Add [tool.cibuildwheel.ios] config in pyproject.toml
-- Bump numpy build requirement for Python 3.13 to 2.3.0
----
- patches/ios_mactypes_shim.h | 280 ++++++++++++++++++++++++++++++++++++
- pyproject.toml              |  13 +-
- setup.py                    | 126 +++++++++++++++-
- 3 files changed, 412 insertions(+), 7 deletions(-)
- create mode 100644 patches/ios_mactypes_shim.h
-
 diff --git a/patches/ios_mactypes_shim.h b/patches/ios_mactypes_shim.h
 new file mode 100644
 index 0000000..00afb3b
@@ -310,7 +288,7 @@ diff --git a/pyproject.toml b/pyproject.toml
 index ff65d77..442502b 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -2,15 +2,24 @@
+@@ -2,15 +2,15 @@
  requires = [
    "numpy<2.0; python_version<'3.9'",
    "numpy==2.0.2; python_version>='3.9' and python_version<'3.13'",
@@ -328,31 +306,22 @@ index ff65d77..442502b 100644
  # see https://scikit-build.readthedocs.io/en/latest/usage.html#adding-cmake-as-building-requirement-only-if-not-installed-or-too-low-a-version
  build-backend = "backend"
  backend-path = ["_build_backend"]
-+
-+
-+[tool.cibuildwheel.ios]
-+xbuild-tools = ["cmake", "ninja"]
-+
-+[tool.cibuildwheel.ios.environment]
-+PIP_EXTRA_INDEX_URL = "https://pypi.anaconda.org/pyswift/simple"
-+CI_BUILD = "1"
-+OPENCV_PYTHON_SKIP_GIT_COMMANDS = "1"
 diff --git a/setup.py b/setup.py
-index d0c57b4..99fedfc 100755
+index e25e51b..41a65c6 100755
 --- a/setup.py
 +++ b/setup.py
-@@ -73,6 +73,11 @@ def main():
+@@ -72,6 +72,11 @@ def main():
+ 
      # https://stackoverflow.com/questions/1405913/python-32bit-or-64bit-mode
      is64 = sys.maxsize > 2 ** 32
- 
 +    # Detect iOS cross-compilation (cibuildwheel sets up a cross-venv
 +    # where sysconfig reports the iOS target platform)
 +    target_platform = sysconfig.get_platform()
 +    is_ios = "ios" in target_platform
 +
+ 
      package_name = "opencv-python"
  
-     if build_contrib and not build_headless:
 @@ -154,11 +159,16 @@ def main():
      # Raw paths relative to sourcetree root.
      files_outside_package_dir = {"cv2": ["LICENSE.txt", "LICENSE-3RD-PARTY.txt"]}
@@ -375,10 +344,11 @@ index d0c57b4..99fedfc 100755
  
      cmake_args = (
          (ci_cmake_generator if is_CI_build else [])
-@@ -207,6 +217,112 @@ def main():
+@@ -207,6 +217,120 @@ def main():
          )
      )
  
++
 +    # iOS cross-compilation: set CMake toolchain flags and disable
 +    # desktop/platform-specific features that are unavailable on iOS
 +    if is_ios:
@@ -410,6 +380,8 @@ index d0c57b4..99fedfc 100755
 +            "-DBUILD_opencv_dnn=OFF",
 +            "-DBUILD_PROTOBUF=OFF",
 +            "-DWITH_PROTOBUF=OFF",
++            # gapi's streaming/cap.hpp includes videoio.hpp
++            "-DBUILD_opencv_gapi=OFF",
 +            # Tests / apps / samples
 +            "-DBUILD_TESTS=OFF",
 +            "-DBUILD_PERF_TESTS=OFF",
@@ -417,6 +389,11 @@ index d0c57b4..99fedfc 100755
 +            "-DBUILD_EXAMPLES=OFF",
 +            "-DBUILD_opencv_java=OFF",
 +        ]
++
++        # Disable Limited API for iOS – numpy headers use symbols
++        # (e.g. PyExc_ModuleNotFoundError) not available in the stable ABI.
++        cmake_args = [a for a in cmake_args if not a.startswith("-DPYTHON3_LIMITED_API")]
++        cmake_args.append("-DPYTHON3_LIMITED_API=OFF")
 +
 +        # Force-include a MacTypes.h shim that omits Ptr/Size/Point/Rect typedefs
 +        # to prevent ambiguity with cv:: types in the Python bindings (which use
@@ -488,6 +465,3 @@ index d0c57b4..99fedfc 100755
      if build_headless:
          # it seems that cocoa cannot be disabled so on macOS the package is not truly headless
          cmake_args.append("-DWITH_WIN32UI=OFF")
--- 
-2.50.1 (Apple Git-155)
-

@@ -285,53 +285,42 @@ index 0000000..00afb3b
 +
 +#endif /* __MACTYPES__ */
 diff --git a/pyproject.toml b/pyproject.toml
-index 58fba21..97efc7f 100644
+index 58fba21..d8dff6b 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -1,15 +1,24 @@
- [build-system]
+@@ -2,14 +2,14 @@
  requires = [
    "numpy<2.0; python_version<'3.9'",
--  "numpy==2.0.2; python_version>='3.9' and python_version<'3.13'",
+   "numpy==2.0.2; python_version>='3.9' and python_version<'3.13'",
 -  "numpy==2.1.3; python_version=='3.13'",
-+  "numpy==2.3.0; python_version=='3.13''",
-+  "numpy==2.3.0; python_version=='3.13''",
++  "numpy==2.3.0; python_version=='3.13'",
    "packaging",
    "pip",
    "scikit-build>=0.14.0",
    "setuptools==59.2.0; python_version<'3.12'",
 -  "setuptools<70.0.0; python_version>='3.12'",
-+  "setuptools>70.0.0; python_version>='3.12''",
++  "setuptools>70.0.0; python_version>='3.12'",
  ]
  # use a custom backend to manage CMake check / installation
  # see https://scikit-build.readthedocs.io/en/latest/usage.html#adding-cmake-as-building-requirement-only-if-not-installed-or-too-low-a-version
  build-backend = "backend"
  backend-path = ["_build_backend"]
-+
-+
-+[tool.cibuildwheel.ios]
-+xbuild-tools = ["cmake", "ninja"]
-+
-+[tool.cibuildwheel.ios.environment]
-+PIP_EXTRA_INDEX_URL = "https://pypi.anaconda.org/pyswift/simple"
-+CI_BUILD = "1"
-+OPENCV_PYTHON_SKIP_GIT_COMMANDS = "1"
 diff --git a/setup.py b/setup.py
-index 8941218..1f752ec 100755
+index 8941218..c09fbda 100755
 --- a/setup.py
 +++ b/setup.py
-@@ -75,6 +75,11 @@ def main():
+@@ -74,6 +74,11 @@ def main():
+ 
      # https://stackoverflow.com/questions/1405913/python-32bit-or-64bit-mode
      is64 = sys.maxsize > 2 ** 32
- 
 +    # Detect iOS cross-compilation (cibuildwheel sets up a cross-venv
 +    # where sysconfig reports the iOS target platform)
 +    target_platform = sysconfig.get_platform()
 +    is_ios = "ios" in target_platform
 +
+ 
      package_name = "opencv-python"
  
-     if build_contrib and not build_headless:
 @@ -156,11 +161,16 @@ def main():
      # Raw paths relative to sourcetree root.
      files_outside_package_dir = {"cv2": ["LICENSE.txt", "LICENSE-3RD-PARTY.txt"]}
@@ -354,10 +343,11 @@ index 8941218..1f752ec 100755
  
      cmake_args = (
          (ci_cmake_generator if is_CI_build else [])
-@@ -209,6 +219,98 @@ def main():
+@@ -209,6 +219,120 @@ def main():
          )
      )
  
++
 +    # iOS cross-compilation: set CMake toolchain flags and disable
 +    # desktop/platform-specific features that are unavailable on iOS
 +    if is_ios:
@@ -372,6 +362,7 @@ index 8941218..1f752ec 100755
 +            "-DCMAKE_OSX_ARCHITECTURES=%s" % ios_arch,
 +            "-DCMAKE_OSX_SYSROOT=%s" % ios_sdk,
 +            "-DCMAKE_OSX_DEPLOYMENT_TARGET=%s" % ios_ver,
++            # Disable desktop GUI / video backends not available on iOS
 +            "-DBUILD_opencv_highgui=OFF",
 +            "-DWITH_FFMPEG=OFF",
 +            "-DWITH_AVFOUNDATION=OFF",
@@ -381,24 +372,39 @@ index 8941218..1f752ec 100755
 +            "-DWITH_1394=OFF",
 +            "-DWITH_OPENEXR=OFF",
 +            "-DBUILD_OPENEXR=OFF",
++            # Disable optional modules that pull in desktop frameworks
 +            "-DBUILD_opencv_videoio=OFF",
 +            "-DBUILD_opencv_video=OFF",
 +            "-DBUILD_opencv_stitching=OFF",
 +            "-DBUILD_opencv_dnn=OFF",
 +            "-DBUILD_PROTOBUF=OFF",
 +            "-DWITH_PROTOBUF=OFF",
++            # gapi's streaming/cap.hpp includes videoio.hpp
++            "-DBUILD_opencv_gapi=OFF",
++            # Tests / apps / samples
 +            "-DBUILD_TESTS=OFF",
 +            "-DBUILD_PERF_TESTS=OFF",
 +            "-DBUILD_opencv_apps=OFF",
 +            "-DBUILD_EXAMPLES=OFF",
 +            "-DBUILD_opencv_java=OFF",
 +        ]
++
++        # Disable Limited API for iOS – numpy headers use symbols
++        # (e.g. PyExc_ModuleNotFoundError) not available in the stable ABI.
++        cmake_args = [a for a in cmake_args if not a.startswith("-DPYTHON3_LIMITED_API")]
++        cmake_args.append("-DPYTHON3_LIMITED_API=OFF")
++
++        # Force-include a MacTypes.h shim that omits Ptr/Size/Point/Rect typedefs
++        # to prevent ambiguity with cv:: types in the Python bindings (which use
++        # "using namespace cv;").
 +        ios_shim = os.path.abspath("patches/ios_mactypes_shim.h")
 +        dlpack_inc = os.path.abspath("opencv/3rdparty/dlpack/include")
 +        cmake_args += [
 +            '-DCMAKE_C_FLAGS=-include "%s"' % ios_shim,
 +            '-DCMAKE_CXX_FLAGS=-include "%s" -I"%s"' % (ios_shim, dlpack_inc),
 +        ]
++
++        # Fix Python library path for iOS cross-compilation.
 +        ios_python_lib = ""
 +        py_libdir = sysconfig.get_config_var("LIBDIR") or ""
 +        py_ldlib = sysconfig.get_config_var("LDLIBRARY") or ""
@@ -411,7 +417,10 @@ index 8941218..1f752ec 100755
 +                ios_python_lib = candidate
 +        if ios_python_lib:
 +            cmake_args = [a for a in cmake_args if not a.startswith("-DPYTHON3_LIBRARY=")]
-+            cmake_args.append("-DPYTHON3_LIBRARY=%s" % ios_python_lib.replace("\", "/"))
++            cmake_args.append("-DPYTHON3_LIBRARY=%s" % ios_python_lib.replace("\\", "/"))
++
++        # OpenCV's CMake skips Python/numpy detection when CMAKE_SYSTEM_NAME=iOS.
++        # We must explicitly set the variables.
 +        cmake_args.append("-DPYTHON3_INCLUDE_PATH=%s" % python_include_dir)
 +        cmake_args += [
 +            "-DPYTHON3_VERSION_STRING=%d.%d" % (sys.version_info.major, sys.version_info.minor),
@@ -421,6 +430,8 @@ index 8941218..1f752ec 100755
 +            "-DPYTHON_DEFAULT_AVAILABLE=TRUE",
 +            "-DPYTHON_DEFAULT_VERSION=%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, sys.version_info.micro),
 +        ]
++
++        # Try multiple approaches to find numpy include dir
 +        numpy_inc = ""
 +        try:
 +            import numpy
@@ -446,7 +457,7 @@ index 8941218..1f752ec 100755
 +                if os.path.isdir(candidate):
 +                    numpy_inc = candidate
 +        if numpy_inc:
-+            cmake_args.append("-DPYTHON3_NUMPY_INCLUDE_DIRS=%s" % numpy_inc.replace("\", "/"))
++            cmake_args.append("-DPYTHON3_NUMPY_INCLUDE_DIRS=%s" % numpy_inc.replace("\\", "/"))
 +        else:
 +            print("WARNING: Could not find numpy include directory for iOS build")
 +

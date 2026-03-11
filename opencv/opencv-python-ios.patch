@@ -1,4 +1,4 @@
-From 4613f78696e8e86d702390f099b219530f7ab8fa Mon Sep 17 00:00:00 2001
+From f6a6bafeb6be1e2ae9a56d34b575348553ce8d9d Mon Sep 17 00:00:00 2001
 From: Py-Swift <psychowaspx@gmail.com>
 Date: Wed, 11 Mar 2026 15:07:14 +0100
 Subject: [PATCH] Add iOS cross-compilation support via cibuildwheel
@@ -15,9 +15,9 @@ Subject: [PATCH] Add iOS cross-compilation support via cibuildwheel
 - Bump numpy build requirement for Python 3.13 to 2.3.0
 ---
  patches/ios_mactypes_shim.h | 280 ++++++++++++++++++++++++++++++++++++
- pyproject.toml              |  13 +-
+ pyproject.toml              |   4 +-
  setup.py                    | 126 +++++++++++++++-
- 3 files changed, 412 insertions(+), 7 deletions(-)
+ 3 files changed, 403 insertions(+), 7 deletions(-)
  create mode 100644 patches/ios_mactypes_shim.h
 
 diff --git a/patches/ios_mactypes_shim.h b/patches/ios_mactypes_shim.h
@@ -307,10 +307,10 @@ index 0000000..00afb3b
 +
 +#endif /* __MACTYPES__ */
 diff --git a/pyproject.toml b/pyproject.toml
-index ff65d77..442502b 100644
+index ff65d77..40b8fac 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -2,15 +2,24 @@
+@@ -2,13 +2,13 @@
  requires = [
    "numpy<2.0; python_version<'3.9'",
    "numpy==2.0.2; python_version>='3.9' and python_version<'3.13'",
@@ -326,17 +326,6 @@ index ff65d77..442502b 100644
  ]
  # use a custom backend to manage CMake check / installation
  # see https://scikit-build.readthedocs.io/en/latest/usage.html#adding-cmake-as-building-requirement-only-if-not-installed-or-too-low-a-version
- build-backend = "backend"
- backend-path = ["_build_backend"]
-+
-+
-+[tool.cibuildwheel.ios]
-+xbuild-tools = ["cmake", "ninja"]
-+
-+[tool.cibuildwheel.ios.environment]
-+PIP_EXTRA_INDEX_URL = "https://pypi.anaconda.org/pyswift/simple"
-+CI_BUILD = "1"
-+OPENCV_PYTHON_SKIP_GIT_COMMANDS = "1"
 diff --git a/setup.py b/setup.py
 index d0c57b4..99fedfc 100755
 --- a/setup.py

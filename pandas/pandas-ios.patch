@@ -57,53 +57,6 @@ index 0000000000..ef25f4d997
 +unset SDKROOT
 +unset IPHONEOS_DEPLOYMENT_TARGET
 +exec /usr/bin/c++ "$@"
-diff --git a/pandas/core/frame.py b/pandas/core/frame.py
-index 73adf8cfb3..86cdd9f805 100644
---- a/pandas/core/frame.py
-+++ b/pandas/core/frame.py
-@@ -13044,26 +13044,14 @@ class DataFrame(NDFrame, OpsMixin):
-             axis can create combinations of index and column values
-             that are missing from the original dataframe. See Examples
-             section.
--
--            .. deprecated:: 3.0
--               This parameter is deprecated and will be removed in a future
--               version of pandas.
-         sort : bool, default True
-             Whether to sort the levels of the resulting MultiIndex.
--
--            .. deprecated:: 3.0
--               This parameter is deprecated and will be removed in a future
--               version of pandas.
-         future_stack : bool, default True
-             Whether to use the new stack implementation. This is the default
-             as of pandas 3.0. When True, dropna and sort have no impact
-             on the result and must remain unspecified. See :ref:`pandas 2.1.0 Release
-             notes <whatsnew_210.enhancements.new_stack>` for more details.
- 
--            .. deprecated:: 3.0
--               This parameter is deprecated and will be removed in a future
--               version of pandas.
--
-         Returns
-         -------
-         DataFrame or Series
-@@ -13080,10 +13068,11 @@ class DataFrame(NDFrame, OpsMixin):
- 
-         Notes
-         -----
--        The function is named by analogy with a collection of books being
--        reorganized from being side-by-side horizontally (the columns of the
--        DataFrame) to being stacked vertically on top of each other (in the
--        index of the DataFrame).
-+        The function is named by analogy with a collection of books
-+        being reorganized from being side by side on a horizontal
-+        position (the columns of the dataframe) to being stacked
-+        vertically on top of each other (in the index of the
-+        dataframe).
- 
-         Reference :ref:`the user guide <reshaping.stacking>` for more examples.
- 
 diff --git a/pandas/meson.build b/pandas/meson.build
 index eb23344ffb..0b72510704 100644
 --- a/pandas/meson.build
