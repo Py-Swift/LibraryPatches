@@ -80,7 +80,7 @@ index 4d92156..58ecbc7 100644
 +
  FetchContent_Declare(miniexpr
      GIT_REPOSITORY https://github.com/Blosc/miniexpr.git
-     GIT_TAG 37bf6982bf9619036b47f095b7005bc3c87a7447
+     GIT_TAG f2faef741c4c507bf6a03167c72ce7f92c6f0ae8
 -- 
 2.50.1 (Apple Git-155)
 
